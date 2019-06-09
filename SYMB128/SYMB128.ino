@@ -1,9 +1,8 @@
 #include <Adafruit_DotStar.h>
 #include <SPI.h>
 
-//#define FLASH_DEVICE_GD25Q
-
 #include "Adafruit_QSPI_Flash.h"
+
 Adafruit_QSPI_Flash flash;
 
   
@@ -174,6 +173,8 @@ const int mbselectoutPin = 13;
 // Please be careful - do not use local variables in time-sensitive sections
 //
 
+char *hex = "0123456789ABCDEF";
+
 int state = STATE_IDLE;
 
 int shiftregin = 0;
@@ -230,7 +231,7 @@ void setup() {
 unsigned long int m_strt;
 unsigned long int m_end;
 
-  Serial.begin(500000);
+  Serial.begin(115200);
 
   // put your setup code here, to run once:
   pinMode(savePin,        INPUT_PULLUP);
@@ -291,10 +292,6 @@ unsigned long int m_end;
   err = 0;
   old_read = 0;
   data_change = 0;
-
-// *** this is here for testing slower CPU speeds versus power consumption ****
-//
-//  MCLK->CPUDIV.reg = MCLK_CPUDIV_DIV(4);
 }
 
 void reset_state_to_idle()
@@ -615,28 +612,104 @@ char char_buf[24];
   }
 }
 
-// Save complete memory contents out to serial-over-USB
+// Save (and load) complete memory contents out to serial-over-USB
 //
-// -> This is just a bunch of hex with carriage returns, which needs to be processed on the PC
-//    in order to become a proper binary file.
+void do_load()
+{
+long int block;
+long int idx;
+int read_byte;
+uint8_t byte;
+
+  // set to blue color to indicate that it is in the middle of programming
+  //
+  strip.setPixelColor(0, 0, 0, 50);
+  strip.show();
+  for (block = 0; block < 256; block++) {
+    for (idx = 0; idx < 512; idx++) {
+      while (1) {
+        if (Serial.available() > 0) {
+          read_byte = Serial.read();
+
+          if (read_byte != -1)
+            break;
+        }
+      }
+      byte = (uint8_t)read_byte;
+      array[((block * 512) + idx)] = byte;
+    }
+  }
+  Serial.flush();
+  pending_write = true;
+  strip.setPixelColor(0, 0, 50, 0);
+  strip.show();
+}
+
+//// This old load function was based on HEX-printed-in-ASCII
+//// and is now outmoded
+////
 //
-// -> For this reason, I haven't created the reverse-direction load() command.
+//void do_load1()
+//{
+//long int block;
+//long int idx;
+//uint8_t read_byte, byte;
 //
+//  for (block = 0; block < 256; block++) {
+//    for (idx = 0; idx < 512; idx++) {
+//      byte = 0;
+//      
+//      //
+//      // first digit
+//      //
+//      while (1) {
+//        read_byte = Serial.read();
+//        if ((read_byte >= '0') && (read_byte <= '9')) {
+//          byte = (read_byte - '0') << 4;
+//          break;
+//        }
+//        if ((read_byte >= 'A') && (read_byte <= 'F')) {
+//          byte = (read_byte - 'A' + 10) << 4;
+//          break;
+//        }
+//      }
+//      
+//      //
+//      // second digit
+//      //
+//      while (1) {
+//        read_byte = Serial.read();
+//        if ((read_byte >= '0') && (read_byte <= '9')) {
+//          byte += (read_byte - '0');
+//          break;
+//        }
+//        if ((read_byte >= 'A') && (read_byte <= 'F')) {
+//          byte += (read_byte - 'A' + 10);
+//          break;
+//        }
+//      }
+//      array[((block * 512) + idx)] = byte;
+//    }
+//  }
+//  Serial.flush();
+//  pending_write = true;
+//  strip.setPixelColor(0, 0, 50, 0);
+//  strip.show();
+//}
+
 void do_save()
 {
-long int offset;
-char read_byte;
+long int block;
+long int idx;
+uint8_t read_byte;
 
-  Serial.println("Start");
-  for (offset = 0; offset < 131072; offset++) {
-    read_byte = array[offset];
-    Serial.print(((read_byte >> 4) & 0x0f), HEX);
-    Serial.print((read_byte & 0x0f), HEX);
-
-    if ((offset & 255) == 255)
-      Serial.println("");
+  for (block = 0; block < 256; block++) {
+    for (idx = 0; idx < 512; idx++) {
+      read_byte = array[((block * 512) + idx)];
+      Serial.write(read_byte);
+    }
   }
-  Serial.println("End");
+    Serial.flush();
 }
 
 // Dump trace log out over serial-over-USB:
@@ -765,10 +838,16 @@ char inChar;
     if ((inChar == 'D') || (inChar == 'd')) {
       do_dump();
     }
-    if ((inChar == 'S') || (inChar == 's')) {
+    else if ((inChar == 'L') || (inChar == 'l')) {
+      do_load();
+    }
+//    else if ((inChar == 'M') || (inChar == 'm')) {
+//      do_load1();
+//    }
+    else if ((inChar == 'S') || (inChar == 's')) {
       do_save();
     }
-    if ((inChar == 'T') || (inChar == 't')) {
+    else if ((inChar == 'T') || (inChar == 't')) {
       do_trace();
     }
     else {
@@ -786,22 +865,42 @@ void save_to_flash()
 int i;
 int sectorstart = (mem_slotnum * MB128_SIZE) / 4096;
 int sectorend = ((mem_slotnum + 1) * MB128_SIZE) / 4096;
+uint8_t tmp;
+
+int blockstart = (mem_slotnum * MB128_SIZE) / 65536;
+int blockend = ((mem_slotnum + 1) * MB128_SIZE) / 65536;
 
 // Erase MUST take place first in order to set bits back to '1'
 // If not erased, more bits will be brought to '0' (none will go to '1')
 
-//  for (i = (mem_slotnum  * 2); i < ((mem_slotnum * 2) + 2); i++) {
-//    flash.eraseBlock(i);
-//  }
 
   // set to yellow while writing (was red if data was pending)
   strip.setPixelColor(0, 50, 50, 0);
   strip.show();
 
-  for (i = sectorstart; i < sectorend; i++) {
-    flash.eraseSector(i);
+
+// Reduce CPU speed during flash write process, to reduce maximum current draw
+//
+// CPU current draw drops roughly 12-14mA; about equal to flash current draw
+// A pleasant side effect is that flash erase/write/read are all faster when
+// CPU runs slower, in some cases more than double
+//
+// Reduce speed by factor of 8 (DIV(1) = half), down to 15MHz:
+//
+  MCLK->CPUDIV.reg = MCLK_CPUDIV_DIV(4);
+
+//  for (i = sectorstart; i < sectorend; i++) {
+//    flash.eraseSector(i);
+//  }
+  for (i = blockstart; i < blockend; i++) {
+    flash.eraseBlock(i);
   }
   flash.writeBuffer((mem_slotnum * MB128_SIZE), array, MB128_SIZE);
+
+//
+// Return CPU to speed from prior to the reduction
+//
+  MCLK->CPUDIV.reg = MCLK_CPUDIV_DIV_DIV1;
 
   // set to green once complete
   strip.setPixelColor(0, 50, 0, 0);
@@ -823,8 +922,15 @@ void loop() {
     new_read = (IN_PORT & (MB128_CLK | MB128_DATAIN));
     if (new_read != old_read)
       break;
-    if (Serial.available()) {
-      do_command();
+
+    if (state == STATE_IDLE) {
+      if (Serial.available()) {
+        do_command();
+      }
+
+      if (((IN_PORT & MB128_SAVETRIGGER) == 0) && flash_present) {
+        save_to_flash();
+      }
     }
   }
 
