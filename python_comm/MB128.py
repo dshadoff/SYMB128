@@ -4,53 +4,51 @@
 
 import sys
 import serial
+import argparse
 
 #
 # this function saves a file from the MB128
 #
-def savefile(fname):
-    f = open(fname, 'wb')
-    ser.write(b's')
-    countdown = 10000000
-    count = 0
-
-    while ((countdown > 0) and (count < 131072)):
-        b = ser.read(ser.in_waiting or 1)
-        if b:
-            f.write(b)
-            count = count + len(b)
-        countdown = countdown - 1
-
-    if (countdown != 0):
-        return(0)
-    else:
-        return(1)
+def savefile(s, filename):
+    with open(filename, 'wb') as f:
+        s.write(b's')
+        retry = 3
+        expected = 131072
+        while expected:
+            data = s.read(expected)
+            if data:
+                f.write(data)
+                expected -= len(data)
+                retry = 3
+            else:
+                retry -= 1
+                if not retry:
+                    return False
+    return True
 
 #
 # this function sends a file to the MB128)
 #
-def loadfile(fname):
-    f = open(fname, 'rb')
-    ser.write(b'l')
-    countdown = 10000000
-    count = 0
-
-    while(count < 131072):
-        b = f.read(1)
-        ser.write(b)
-        count = count + 1
-
-    return(0)
-
-def usage():
-    print('command-line format:')
-    print('python SYMB128.py <port> [S | L] <filename>')
-    print('')
-    print('where:')
-    print('port is in the form "COM12"')
-    print('S = save to PC file / L = load from PC file')
-    print('filename is name of file on local PC')
-    return(0)
+def loadfile(s, filename):
+    with open(filename, 'rb') as f:
+        s.write(b'l')
+        retry = 3
+        sent = 0
+        
+        size = 131072
+        data = f.read(size)
+        
+        while sent < size:
+            written = s.write(data)
+            if written:
+                data = data[written:]
+                sent += written
+                retry = 3
+            else:
+                retry -= 1
+                if not retry:
+                    return False
+    return True
 
 #
 # Mainline
@@ -64,47 +62,27 @@ def usage():
 # filename is name of file on local PC
 #
 
-if (len(sys.argv) != 4):
-    print(len(sys.argv), ' arguments; should be 4')
-    usage()
-    exit(1)
+parser = argparse.ArgumentParser(add_help=True)
+parser.add_argument('port', help='serial port')
+parser.add_argument('filename', help='output filename')
+group = parser.add_mutually_exclusive_group(required=True)
+group.add_argument('-s', '--save', help='save to file', action="store_true")
+group.add_argument('-l', '--load', help='load from file', action="store_true")
+args = parser.parse_args()
 
-if (sys.argv[1][0:3] != 'COM'):
-    print('Please use a COM port starting with "COM".')
-    print(' ')
-    usage()
-    exit(1)
+filename = args.filename
 
-if (sys.argv[2] == 'S' or sys.argv[2] == 's'):
-    operation = 'S'
-elif (sys.argv[2] == 'L' or sys.argv[2] == 'l'):
-    operation = 'L'
-else:
-    print('operation must be either "S" (save) or "L" (load)')
-    print(' ')
-    usage()
-    exit(1)
+com = serial.Serial()
 
-filename = sys.argv[3]
-
-ser = serial.Serial()
-ser.baudrate = 115200
-ser.timeout = 0
-ser.port = sys.argv[1]
+com.baudrate = 115200
+com.timeout = 4
+com.write_timeout = 1
+com.port = args.port
 
 try:
-    ser.open()
-except:
-    print("could not open port", ser.port)
-    exit(1)
-
-if (operation == 'S'):
-    f = savefile(filename)
-elif (operation == 'L'):
-    f = loadfile(filename)
-
-if (f == 1):
-    print("Operation not successful")
-
-ser.close()
-
+    with com as s:
+        ret = savefile(s, filename) if args.save else loadfile(s, filename)
+        if not ret:
+            print("[error] Operation failed")
+except Exception as e:
+    print(str(e))
