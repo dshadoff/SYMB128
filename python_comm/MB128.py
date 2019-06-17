@@ -30,7 +30,7 @@ def savefile(s, filename):
 # this function sends a file to the MB128)
 #
 def loadfile(s, filename):
-    with open(filename, 'rb') as h:
+    with open(filename, 'rb') as f:
         s.write(b'l')
         retry = 3
         sent = 0
@@ -42,7 +42,7 @@ def loadfile(s, filename):
             written = s.write(data)
             if written:
                 data = data[written:]
-                send += written
+                sent += written
                 retry = 3
             else:
                 retry -= 1

@@ -1,11 +1,9 @@
-#include <Adafruit_DotStar.h>
 #include <SPI.h>
-
-#include "Adafruit_QSPI_Flash.h"
+#include <Adafruit_DotStar.h>
+#include <Adafruit_QSPI_Flash.h>
 
 Adafruit_QSPI_Flash flash;
 
-  
 //
 // This sketch is intended to be an MB128 emulator
 //
@@ -102,8 +100,6 @@ Adafruit_QSPI_Flash flash;
 #define MB128_IDENTOUT     PORT_PA23    // Pin marked as D12 on Itsy Bitsy M4 Express
 #define MB128_MBSELECTOUT  PORT_PA22    // Pin marked as D13 on Itsy Bitsy M4 Express; this also lights LED
 
-
-
 #define NUMPIXELS 30 // Number of LEDs in strip
  
 // Here's how to control the LEDs from any two pins:
@@ -111,10 +107,7 @@ Adafruit_QSPI_Flash flash;
 #define DOTSTAR_DATAPIN    8
 #define DOTSTAR_CLOCKPIN   6
 
-Adafruit_DotStar strip = Adafruit_DotStar(
-  DOTSTAR_NUMPIXELS, DOTSTAR_DATAPIN, DOTSTAR_CLOCKPIN, DOTSTAR_BRG);
-
-
+Adafruit_DotStar strip = Adafruit_DotStar(DOTSTAR_NUMPIXELS, DOTSTAR_DATAPIN, DOTSTAR_CLOCKPIN, DOTSTAR_BRG);
 
 // --------------
 // *** STATES ***
@@ -153,7 +146,6 @@ Adafruit_DotStar strip = Adafruit_DotStar(
 #define WRITE_CMD   false
 #define READ_CMD    true
 bool read_write = READ_CMD;
-
 
 // pin assignments in order to set them as inputs/outputs
 //
@@ -225,17 +217,16 @@ int mem_slotnum = 0;
 uint8_t array[MB128_SIZE];
 char *array_ptr;
 
-
 void setup() {
 
 unsigned long int m_strt;
 unsigned long int m_end;
 
   Serial.begin(115200);
-
+  
   // put your setup code here, to run once:
   pinMode(savePin,        INPUT_PULLUP);
-  pinMode(clockPin,       INPUT_PULLUP);
+  pinMode(clockPin,       INPUT_PULLUP); 
   pinMode(datainPin,      INPUT_PULLUP);
   pinMode(dataoutPin,     OUTPUT);
   pinMode(identoutPin,    OUTPUT);
@@ -272,6 +263,7 @@ unsigned long int m_end;
 
 // At initialization time, there is no 'dirty cache', so we set the LED to
   pending_write = false;
+
   strip.setPixelColor(0, 50, 0, 0);
   strip.show();
 
@@ -559,6 +551,7 @@ void state_check()
       }
       if (shiftreg_len == 5) {             // then, wait for 3 trailer bits
         reset_state_to_idle();
+
         strip.setPixelColor(0, 0, 50, 0);
         strip.show();
       }
@@ -625,6 +618,7 @@ uint8_t byte;
   //
   strip.setPixelColor(0, 0, 0, 50);
   strip.show();
+/*
   for (block = 0; block < 256; block++) {
     for (idx = 0; idx < 512; idx++) {
       while (1) {
@@ -639,9 +633,12 @@ uint8_t byte;
       array[((block * 512) + idx)] = byte;
     }
   }
+*/
+  Serial.readBytes((char*)array, 512*256);
   Serial.flush();
   pending_write = true;
-  strip.setPixelColor(0, 0, 50, 0);
+  
+  strip.setPixelColor(0, 50, 0, 0);
   strip.show();
 }
 
@@ -704,12 +701,13 @@ long int idx;
 uint8_t read_byte;
 
   for (block = 0; block < 256; block++) {
-    for (idx = 0; idx < 512; idx++) {
+    /*for (idx = 0; idx < 512; idx++) {
       read_byte = array[((block * 512) + idx)];
       Serial.write(read_byte);
-    }
-  }
+    }*/
+    Serial.write((char*)&array[block*512], 512);
     Serial.flush();
+  }
 }
 
 // Dump trace log out over serial-over-USB:
@@ -873,11 +871,9 @@ int blockend = ((mem_slotnum + 1) * MB128_SIZE) / 65536;
 // Erase MUST take place first in order to set bits back to '1'
 // If not erased, more bits will be brought to '0' (none will go to '1')
 
-
   // set to yellow while writing (was red if data was pending)
   strip.setPixelColor(0, 50, 50, 0);
   strip.show();
-
 
 // Reduce CPU speed during flash write process, to reduce maximum current draw
 //
@@ -983,8 +979,6 @@ void loop() {
   if (state == STATE_IDLE && pending_write && ((IN_PORT & MB128_SAVETRIGGER) == 0) && flash_present) {
     save_to_flash();
   }  
-
-
 
 //  I had originally considered that a data value transition more than once between clocks
 //  (note: one or zero is normal) is an error state, which should abort a transfer-in-progress
